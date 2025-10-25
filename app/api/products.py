@@ -72,3 +72,97 @@ def get_my_products():
         output.append(product_data)
 
     return jsonify({'products': output}), 200
+
+@products_bp.route('/<int:product_id>', methods=['PUT'])
+@jwt_required()
+def update_product(product_id):
+    """
+    Belirli bir ürünü günceller.
+    Sadece ürünün sahibi bu ürünü güncelleyebilir.
+    """
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+
+    # 1. Ürünü bul
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify({'message': 'Ürün bulunamadı.'}), 404
+
+    # 2. Güvenlik: Kullanıcı bu ürünün sahibi mi?
+    if product.owner_id != current_user_id:
+        return jsonify({'message': 'Sadece kendi ürünlerinizi güncelleyebilirsiniz.'}), 403
+
+    # 3. Güncelle
+    # Sadece gönderilen alanları güncelliyoruz
+    if 'title' in data:
+        product.title = data['title']
+    if 'description' in data:
+        product.description = data['description']
+    if 'category' in data:
+        product.category = data['category']
+    if 'image_url' in data:
+        product.image_url = data['image_url']
+    
+    db.session.commit()
+
+    return jsonify({
+        'message': 'Ürün başarıyla güncellendi.',
+        'product': {
+            'id': product.id,
+            'title': product.title,
+            'description': product.description,
+            'category': product.category
+        }
+    }), 200
+
+
+@products_bp.route('/<int:product_id>', methods=['DELETE'])
+@jwt_required()
+def delete_product(product_id):
+    """
+    Belirli bir ürünü siler.
+    Sadece ürünün sahibi bu ürünü silebilir.
+    Eğer ürünün aktif bir ilanı varsa silme işlemi engellenir.
+    """
+    current_user_id = int(get_jwt_identity())
+
+    # 1. Ürünü bul
+    product = Product.query.get(product_id)
+    if not product:
+        return jsonify({'message': 'Ürün bulunamadı.'}), 404
+
+    # 2. Güvenlik: Kullanıcı bu ürünün sahibi mi?
+    if product.owner_id != current_user_id:
+        return jsonify({'message': 'Sadece kendi ürünlerinizi silebilirsiniz.'}), 403
+
+    # 3. İŞ MANTIĞI KONTROLÜ: Ürünün aktif bir ilanı var mı?
+    #    (models.py'deki backref 'listing' sayesinde)
+    if product.listing and product.listing.is_active:
+        return jsonify({
+            'message': 'Bu ürün şu anda aktif bir ilanda (satış/kiralama/takas). Silmek için önce ilanı kaldırın.',
+            'listing_id': product.listing.id
+        }), 409 # 409 Conflict
+
+    # 4. Güvenle Sil
+    # Bu ürüne bağlı (artık aktif olmayan) ilanlar, teklifler, işlemler varsa
+    # veritabanı modelimizde 'ondelete' ayarı yapmamız gerekirdi.
+    # Şimdilik, sadece aktif ilanı yoksa silmeye izin veriyoruz.
+    # (Daha güvenli bir yöntem, ilişkili her şeyi silmek veya ürünü de 'soft delete' yapmaktır)
+    
+    # Not: Eğer bu ürüne bağlı 'swap_offers' veya 'transactions' varsa
+    # bu silme işlemi veritabanı hatası verebilir (Foreign Key Constraint).
+    # Bu durumda, db.session.delete(product) yerine product.status = 'deleted'
+    # gibi bir 'soft delete' yapmak daha iyidir.
+    # Şimdilik 'hard delete' (gerçek silme) deneyelim:
+    
+    try:
+        db.session.delete(product)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'message': 'Silme hatası. Bu ürüne bağlı tamamlanmış işlemler veya teklifler olabilir.',
+            'error': str(e)
+        }), 500 # 500 Internal Server Error (veya 409 Conflict)
+
+    return jsonify({'message': 'Ürün başarıyla silindi.'}), 200
