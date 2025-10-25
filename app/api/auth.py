@@ -52,6 +52,7 @@ def login():
     # 1. Gelen veriyi kontrol et
     if not data or not data.get('username') or not data.get('password'):
         return jsonify({'message': 'Eksik bilgi (username, password zorunludur).'}), 400
+    
 
     username = data['username']
     password = data['password']
@@ -66,7 +67,7 @@ def login():
 
     # 4. Şifre doğruysa, bir JWT (JSON Web Token) oluştur
     #    Bu token, kullanıcının kimliğini kanıtlar
-    access_token = create_access_token(identity=user.id)
+    access_token = create_access_token(identity=str(user.id))
     
     return jsonify({
         'message': f'Hoş geldin, {user.username}!',

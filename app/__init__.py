@@ -25,7 +25,21 @@ def create_app(config_class=Config):
     jwt.init_app(app)
 
     # --- Blueprint Kayıtları Buraya Gelecek ---
-    # (API rotalarını yazdıkça burayı dolduracağız)
+    
+    # 1. Auth (Kullanıcı Giriş/Kayıt) Blueprint'i
+    from .api.auth import auth_bp
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
+
+    # 2. Products (Ürünler) Blueprint'i
+    from .api.products import products_bp
+    app.register_blueprint(products_bp, url_prefix='/api/products')
+
+    # 3. Listings (İlanlar) Blueprint'i
+    from .api.listings import listings_bp
+    app.register_blueprint(listings_bp, url_prefix='/api/listings')
+    
+    from .api.swap import swap_bp
+    app.register_blueprint(swap_bp, url_prefix='/api/swap')
 
     @app.route('/')
     def hello():
