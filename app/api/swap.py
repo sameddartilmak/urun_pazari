@@ -66,3 +66,98 @@ def make_swap_offer():
         'offer_id': new_offer.id,
         'status': new_offer.status.value
     }), 201
+@swap_bp.route('/offers/received/<int:listing_id>', methods=['GET'])
+@jwt_required()
+def get_offers_for_my_listing(listing_id):
+    """
+    Kullanıcının, belirli bir ilanına gelen tüm takas tekliflerini listeler.
+    Sadece ilan sahibi bu teklifleri görebilir.
+    """
+    current_user_id = int(get_jwt_identity())
+    
+    # 1. İlanı bul
+    listing = Listing.query.get(listing_id)
+
+    if not listing:
+        return jsonify({'message': 'İlan bulunamadı.'}), 404
+
+    # 2. Güvenlik: Giriş yapan kullanıcı, bu ilanın sahibi mi?
+    if listing.lister_id != current_user_id:
+        return jsonify({'message': 'Sadece kendi ilanlarınıza gelen teklifleri görebilirsiniz.'}), 403
+
+    # 3. İlana ait teklifleri bul (models.py'deki 'backref' sayesinde)
+    offers = listing.swap_offers_received
+    
+    output = []
+    for offer in offers:
+        # Teklifi yapanı ve teklif edilen ürünü al
+        offerer = offer.offerer 
+        offered_product = offer.offered_product
+
+        offer_data = {
+            'offer_id': offer.id,
+            'status': offer.status.value,
+            'message': offer.message,
+            'created_at': offer.created_at,
+            'offerer_username': offerer.username,
+            'offered_product': {
+                'product_id': offered_product.id,
+                'title': offered_product.title,
+                'description': offered_product.description,
+                'category': offered_product.category
+            }
+        }
+        output.append(offer_data)
+
+    return jsonify({'offers': output}), 200
+
+
+@swap_bp.route('/offers/respond/<int:offer_id>', methods=['POST'])
+@jwt_required()
+def respond_to_offer(offer_id):
+    """
+    Bir takas teklifini kabul eder (accept) veya reddeder (reject).
+    Sadece ilanın sahibi bu işlemi yapabilir.
+    """
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    action = data.get('action') # 'accept' veya 'reject'
+
+    if not action or action not in ['accept', 'reject']:
+        return jsonify({'message': '"action" alanı "accept" veya "reject" olmalıdır.'}), 400
+
+    # 1. Teklifi bul
+    offer = SwapOffer.query.get(offer_id)
+    if not offer:
+        return jsonify({'message': 'Teklif bulunamadı.'}), 404
+
+    # 2. Güvenlik: Giriş yapan kullanıcı, bu teklifin yapıldığı ilanın sahibi mi?
+    target_listing = offer.target_listing
+    if target_listing.lister_id != current_user_id:
+        return jsonify({'message': 'Sadece kendi ilanınıza gelen teklifleri yanıtlayabilirsiniz.'}), 403
+
+    # 3. Zaten yanıtlanmış mı?
+    if offer.status != OfferStatus.PENDING:
+        return jsonify({'message': f'Bu teklif zaten yanıtlanmış (Durum: {offer.status.value}).'}), 400
+
+    # 4. İşlemi gerçekleştir
+    if action == 'accept':
+        offer.status = OfferStatus.ACCEPTED
+        
+        # --- ÖNEMLİ İŞ MANTIĞI ---
+        # Teklif kabul edildiğinde, ilgili ilanları deaktive etmeliyiz.
+        # 1. Takas ilanı (Eski Ekran Kartı) artık 'is_active = False' olmalı.
+        target_listing.is_active = False
+        
+        # 2. Teklif edilen ürünün (8GB RAM) durumu ne olacak?
+        #    Belki onun da başka ilanları vardı? Şimdilik sadece ürünü 'değiştirildi'
+        #    olarak işaretleyebiliriz (models.py'de 'status' ekleyerek)
+        #    Şimdilik basit tutalım: Sadece ilanı deaktive edelim.
+        
+        db.session.commit()
+        return jsonify({'message': 'Teklif kabul edildi. İlan devre dışı bırakıldı.', 'status': 'accepted'}), 200
+
+    elif action == 'reject':
+        offer.status = OfferStatus.REJECTED
+        db.session.commit()
+        return jsonify({'message': 'Teklif reddedildi.', 'status': 'rejected'}), 200    

@@ -40,6 +40,9 @@ def create_app(config_class=Config):
     
     from .api.swap import swap_bp
     app.register_blueprint(swap_bp, url_prefix='/api/swap')
+    
+    from .api.transactions import transactions_bp
+    app.register_blueprint(transactions_bp, url_prefix='/api/transactions')
 
     @app.route('/')
     def hello():
