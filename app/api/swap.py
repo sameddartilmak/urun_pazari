@@ -160,4 +160,40 @@ def respond_to_offer(offer_id):
     elif action == 'reject':
         offer.status = OfferStatus.REJECTED
         db.session.commit()
-        return jsonify({'message': 'Teklif reddedildi.', 'status': 'rejected'}), 200    
+        return jsonify({'message': 'Teklif reddedildi.', 'status': 'rejected'}), 200   
+
+@swap_bp.route('/offers/sent', methods=['GET'])
+@jwt_required()
+def get_my_sent_offers():
+    """
+    Giriş yapmış kullanıcının 'yaptığı' (gönderdiği) tüm takas tekliflerini listeler.
+    """
+    current_user_id = int(get_jwt_identity())
+    
+    # Sadece bu kullanıcıya ait (offerer_id) teklifleri bul
+    sent_offers = SwapOffer.query.filter_by(
+        offerer_id=current_user_id
+    ).order_by(SwapOffer.created_at.desc()).all() # Yeniden eskiye sırala
+
+    output = []
+    for offer in sent_offers:
+        # Teklifin yapıldığı ilanı ve o ilanın ürününü alalım
+        target_listing = offer.target_listing
+        target_product = target_listing.product
+        
+        offer_data = {
+            'offer_id': offer.id,
+            'status': offer.status.value, # pending, accepted, rejected
+            'date_offered': offer.created_at,
+            'my_offered_product': { # Benim teklif ettiğim ürün
+                'title': offer.offered_product.title
+            },
+            'target_listing': { # Teklif yaptığım ilan
+                'listing_id': target_listing.id,
+                'title': target_product.title,
+                'owner_username': target_listing.lister.username # İlan sahibinin adı
+            }
+        }
+        output.append(offer_data)
+
+    return jsonify({'sent_offers': output}), 200     

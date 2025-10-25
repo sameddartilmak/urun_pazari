@@ -230,3 +230,37 @@ def delete_listing(listing_id):
     db.session.commit()
 
     return jsonify({'message': 'İlan başarıyla kaldırıldı (devre dışı bırakıldı).'}), 200
+
+@listings_bp.route('/my_listings', methods=['GET'])
+@jwt_required()
+def get_my_listings():
+    """
+    Giriş yapmış kullanıcının yayınladığı 'tüm' ilanları listeler
+    (Hem aktif hem inaktif olanlar).
+    """
+    current_user_id = int(get_jwt_identity())
+    
+    # Sadece bu kullanıcıya ait (lister_id) ilanları bul
+    my_listings = Listing.query.filter_by(
+        lister_id=current_user_id
+    ).order_by(Listing.created_at.desc()).all() # Yeniden eskiye sırala
+
+    output = []
+    for listing in my_listings:
+        product = listing.product
+        
+        listing_data = {
+            'listing_id': listing.id,
+            'listing_type': listing.listing_type.value,
+            'is_active': listing.is_active, # Durumu (aktif/satılmış/silinmiş)
+            'product_title': product.title,
+            'created_at': listing.created_at
+            
+            # (Buraya bu ilana gelen teklif/transaction sayısını da ekleyebiliriz,
+            # ama şimdilik basit tutalım)
+            # 'offer_count': len(listing.swap_offers_received),
+            # 'transaction_count': len(listing.transactions)
+        }
+        output.append(listing_data)
+
+    return jsonify({'my_listings': output}), 200
